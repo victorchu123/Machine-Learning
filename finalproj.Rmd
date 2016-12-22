@@ -1,0 +1,233 @@
+---
+title: "CineMatch"
+author: "Andy Samant, Arjun Shah, Vladimir Sekiguchi, Victor Chu"
+date: "12/14/2016"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+=================================================================
+PROBLEM STATEMENT
+
+        We are attempting to predict whether users like or dislike certain movies based on movie review data, movie information data, and user demographic data. Movie platforms and distributors such as Netflix or Amazon seek to provide their customers with a movie recommendation service-a method of assisting a user in finding new material to watch or buy based on that user's personal tastes, as determined by previous indulgences and feedback (reviews). In doing so, such services hold customer interest. Consequently, these companies, whose business models rely on subscription and viewership, may maintain brand loyalty and dependency from their consumer base and continue to thrive.
+
+=================================================================
+DATA DESCRIPTION
+
+        The data files we used contained 1,000,209 anonymous ratings of approximately 3,900 movies made by 6,040 MovieLens users who joined MovieLens in 2000. There were three separate files: a ratings file, a users file, and a movies file. The ratings file ("ratings.dat") contained UserIDs ranging between 1 and 6040, MovieIDs ranging between 1 and 3952, ratings made on a 5-star scale (whole-star ratings only), and timestamps. Each UserID in the dataset was ensured to map to at least 20 ratings. The users file ("users.dat") contained UserIDs ranging between 1 and 6040, gender denoted by a "M" for male and "F" for female, age chosen from specified yearly ranges (1: "Under 18", 18: "18-24", 25: "25-34", 35: "35-44", 45: "45-49", 50: "50-55", 56: "56+"), and occupation chosen from specified choices (	0:  "other" or not specified, 1:  "academic/educator", 2:  "artist", 3:  "clerical/admin", 4:  "college/grad student", 5:  "customer service", 6:  "doctor/health care", 7:  "executive/managerial", 8:  "farmer", 9:  "homemaker", 10:  "K-12 student", 11:  "lawyer", 12:  "programmer", 13:  "retired", 14:  "sales/marketing", 15:  "scientist", 16:  "self-employed", 17:  "technician/engineer", 18:  "tradesman/craftsman", 19:  "unemployed", 20:  "writer"). The movies file ("movies.dat") contained MovieIDs ranging between 1 and approximately 3,900, title as provided by the IMDB (including the year of release), and pipe-separated genres chosen from a specified list of genres (Action, Adventure, Animation, Children's, Comedy, Crime, Documentary, Drama, Fantasy, Film-Noir, Horror, Musical, Mystery, Romance, Sci-Fi, Thriller, War, Western).
+
+
+=================================================================
+DATA PREPROCESSING
+
+        Once the three data files were imported, their columns were labeled and they were merged. New columns were added to the data frame: a column was added with quasi-boolean values (0's and 1's) for each genre to split up the pipe-separated genre column from the ratings.dat file, and columns were added to give aggregate mean values for ratings based on MovieID, ratings based on UserID, and ratings based on UserID per genre. UserIds for which aggregate mean values per genre were unable to be retrieved (due to that user not having rated any movies of that genre) were assigned the value 0 as a default. Columns that contained information that seemed irrelevant or inhibitory to our cause (such as the timestamp, zip-code, and title columns) were nullified to save time and processing power. All the columns containing aggregate mean ratings were factored according to their numerical rating (factors between 1 to 5), and the rating column was factored as a "like" or "dislike" depending on its values (ratings greater than 0 and less than or equal to 3 were factored as "dislikes" and ratings greater than 3 and less than or equal to 5 were factored as "likes") as we sought to simplify our results into "likes" or "dislikes" for the sake of accuracy; we expect a higher hit rate while predicting a binary value rather than forecasting a numerical rating from 1 to 5. We decided that the data did not need balancing, as there was a relatively even spread of rating between the two factors-approximately 425000 dislikes to 575000 likes. It should be noted that we frequently ensured that our columns were purely factored and no missing values existed before proceeding. Finally, we divided our ratings data with 70% of the data going to the training dataset and the remaining 30% going to the testing dataset.
+
+```{r,echo=FALSE, message=FALSE}
+##---------------------------------------------##
+## Import/Clean Data                           ##
+##---------------------------------------------##
+# Import movies data
+path = "movies.dat"
+movies <- read.delim(path, header = FALSE, colClasses = c(NA, "NULL"), sep=":")
+names(movies) <- c("MovieID","Title","Genres")
+new_movies <- data.frame(MovieID=movies$MovieID, Title=movies$Title, Genres=movies$Genres, "Action"=rep(0), "Adventure"=rep(0), "Animation"=rep(0), "Children's"=rep(0), "Comedy"=rep(0), "Crime"=rep(0), "Documentary"=rep(0), "Drama"=rep(0), "Fantasy"=rep(0), "Film-Noir"=rep(0), "Horror"=rep(0), "Musical"=rep(0), "Mystery"=rep(0), "Romance"=rep(0), "Sci-Fi"=rep(0), "Thriller"=rep(0), "War"=rep(0), "Western"=rep(0)) 
+for(i in 4:21)   new_movies[grep(names(new_movies)[i],new_movies[,3]),i]=1
+new_movies$Genres <- NULL
+
+# Import ratings data
+path = "ratings.dat"
+ratings <- read.delim(path, header = FALSE, colClasses = c(NA, "NULL"), sep = ":")
+names(ratings) <- c("UserID","MovieID","Rating", "Timestamp")
+ratings$Timestamp <- NULL
+agg <- aggregate(ratings[, 3], list(ratings$MovieID), mean)
+agg2 <- aggregate(ratings[, 3], list(ratings$UserID), mean)
+names(agg) <- c('MovieID','MeanMovieRating')
+names(agg2) <- c('UserID','MeanUserRating')
+
+# Import users data
+path = "users.dat"
+users <- read.delim(path, header = FALSE, colClasses = c(NA, "NULL"), sep = ":")
+names(users) <- c("UserID","Gender","Age", "Occupation", "Zip-Code")
+users$Occupation <- factor(users$Occupation, 
+                           levels = c(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20),
+                           labels = c("other or not specified","academic/educator","artist",
+                                      "clerical/admin","college/grad student","customer service"
+                                      ,"doctor/health care","executive/managerial","farmer",
+                                      "homemaker","K-12 student","lawyer","programmer","retired"
+                                      ,"sales/marketing","scientist","self-employed","technician/engineer"
+                                      ,"tradesman/craftsman","unemployed","writer"))
+users$Age <- factor(users$Age, 
+                    levels = c(1,18,25,35,45,50,56),
+                    labels = c("Under 18","18-24","25-34","35-44","45-49","50-55","56+"))
+ratings <- merge(ratings, users, by = "UserID")
+ratings <- merge(ratings, new_movies, by = "MovieID")
+ratings <- merge(ratings, agg, by = "MovieID")
+ratings <- merge(ratings, agg2, by = "UserID")
+ratings$`Zip-Code`<-NULL
+ratings$timestamp <- NULL
+
+# Add mean rating columns for each genre
+for (i in names(ratings)[8:25]) {
+  temp <- subset(ratings, get(i) == 1)
+  temp_agg <- aggregate(temp[, 3], list(temp$UserID), mean)
+  names(temp_agg) <- c('UserID',paste('Mean',i,'Rating', sep=""))
+  ratings <- merge(ratings, temp_agg, by = "UserID", all = TRUE)
+}
+ratings$Title <- NULL
+suppressWarnings(ratings[is.na(ratings)] <- 0)
+
+# Factor mean rating columns and genre columns
+factored_frame <- as.data.frame(sapply(ratings[,25:44], cut, breaks = c((-1),0,1,2,3,4,5), labels = c("0","1","2","3","4","5"), ordered = TRUE))
+ratings[25:44] <- factored_frame
+factored_frame2 <- as.data.frame(sapply(ratings[7:24], as.factor))
+ratings[7:24] <- factored_frame2
+rm(factored_frame)
+rm(factored_frame2)
+
+# Factor rating column
+ratings$Rating <- cut(ratings$Rating, breaks = c(0,3,5), labels = c("Dislike","Like"))
+
+# Create training and testing datasets
+library(caret)
+set.seed(1234)
+index <- createDataPartition(ratings$MovieID, p=0.7, list=FALSE) 
+train <- ratings[index, ]
+test  <- ratings[-index, ]
+
+# 'Shorthand' object (for future reference)
+vars <- Rating ~ Gender + Age + Occupation + Action*MeanActionRating + Adventure*MeanAdventureRating + Animation*MeanAnimationRating + Children.s*MeanChildren.sRating + Comedy*MeanComedyRating + Crime*MeanCrimeRating + Documentary*MeanDocumentaryRating + Drama*MeanDramaRating + Fantasy*MeanFantasyRating + Film.Noir*MeanFilm.NoirRating + Horror*MeanHorrorRating + Musical*MeanMusicalRating + Mystery*MeanMysteryRating + Romance*MeanRomanceRating + Sci.Fi*MeanSci.FiRating + Thriller*MeanThrillerRating + War*MeanWarRating + Western*MeanWesternRating + MeanMovieRating + MeanUserRating
+
+```
+
+=================================================================
+MACHINE LEARNING APPROACH  
+
+        We applied this techniques to our training data sets, 70% of our datasets, to produce classification models that would give us an answer to whether a user likes or dislikes a given movie. After we developed these models, we applied it to the remaining 30% of our testing data sets to get our performance results (accuracy, sensitivity, specificity, negative predictive power, and positive predictive power; all of which will be elaborated on in the results.
+
+glm:
+
+        This is a logistic regression technique that we used to measure the relationship between our categorical dependent variable (our outcome that determines whether an arbitrary user will like or dislike a movie) and our 43 independent variables (our predictor variables) by using a cumulative logistic distribution. We chose this method to use as a control to show how well the other two algorithms perform to this one, which we knew from the start would present a not-so-great model.
+        
+```{r, echo=FALSE, message=FALSE}
+##---------------------------------------------##
+## Generalized Linear Model                    ##
+##---------------------------------------------##
+fit.lm <- glm(vars, data=train, family = "binomial")
+glmpred <- predict(fit.lm, test)
+glmpred <- cut(glmpred, breaks = c(0,3,5), labels = c("Dislike","Like"))
+
+```
+
+Random Forests:
+
+        This machine learning algorithm starts off by growing a large number of classification/decision trees by sampling N cases with replacement from our training set. Classification/decision trees are essentially predictive models themselves that map observations about users and movies from our dataset to conclusions about the user's binary opinion on the movie. After that, we take samples of size sqrt(M), where M is the total number of predictor variables at each node, in order to determine how many variables are candidates to be used for splitting that node. Then we grow each tree fully without pruning, or cutting out nodes from the bottom. The nodes at the bottom are assigned a class based on the case that shows up the most in that node. For all new classification cases, we can send them down the tree to the bottom nodes and take a majority vote to determine the outcome variable (like or dislike). We chose this algorithm because we knew it would perform well since it is meant for classifying for binary decisions, and it will generate highly correlated trees which will not reduce the variance of our results by too much.
+
+```{r, echo=FALSE, message=FALSE}
+##---------------------------------------------##
+## Random Forest                               ##
+##---------------------------------------------##
+library(randomForest)
+set.seed(1234)
+fit.forest <- randomForest(vars, data=train, dna.action=na.roughfix,
+                           ntree=10,
+                           importance=TRUE)
+fit.forest
+
+# Evaluate performance on new data
+forestpred <- predict(fit.forest, test)
+```
+
+Boosting:
+
+        This method begins by assigning equal weights to each case out of N cases, which is 1/N. We then fit a classifier, which is weak because the accuracy is just above 50% and just better than taking a 50/50 guess for whether a user likes a movie or not. For the misclassified cases, we give them a greater weight and refit a new classifier. We repeat this process around (2-5) * M times, where M is the number of our predictor variables. We then combine the M classifiers by averaging them out and giving a greater weight to the classifiers who perform better and had better accuracy. We chose this algorithm because we knew it would build a strong classifier from a set of weak classifiers which would create a good model for our movie predictions.
+
+```{r, echo=FALSE, message=FALSE}
+##---------------------------------------------##
+## Boosting                                    ##
+##---------------------------------------------##
+
+# install.packages("adabag")
+library(adabag)
+set.seed(1234)
+fit.boost <- boosting(Rating ~ . - UserID - MovieID, data=train, 
+                      boos=FALSE,  # don't bootstrap - use all cases
+                      mfinal=100,
+                      control=rpart.control(maxdepth=5))
+
+# Evaluate on Test Data
+boostpred <- predict(fit.boost, test)
+```
+  
+=================================================================
+RESULTS
+  
+        Let's keep in mind, the purpose of these models is to predict whether or not a given user will like a given movie. We need to look at three types of predictors: information about the user, information about the movie, and information about the interaction between the user and the movie.  
+        Only some of the demographic predictors mattered. The occupation-based factors are particularly interesting. These were some of our most statistically significantly factors. Artists, craftspeople, customer service workers, programmers, scientists, and unemployed people were significantly more dissatisfied with their movies than the other occupations. The effects were strongest for artists and the unemployed. Farmers and K-12 students were more likely to give higher ratings to their movies. In terms of ages, older users gave lower ratings. The effects are small or nonexistent for users aged 34 or under. However, the effect on the rating is negative for older groups, with the standard error falling further and further below zero as the age level increases. However, after age 56, age has a negligible effect on ratings. Men are also expected to have slightly higher movie ratings than women. We also have data on the users' existing movie ratings. Users were also far more likely to give a movie a positive review if their average rating, across all movies, was high. The higher the mean rating, the more powerful the effect, for obvious reasons. This could mean that certain groups are naturally more optimistic about movies than others and tend to give them higher ratings. They might enjoy almost anything that they watch. Other viewers are tougher because they tend to dislike many movies. While these factors don't directly help us recommend movies to users, it does help us put their previous reviews in context so that the model can better examine the other relevant factors. Adjusting for demographic factors is important.  
+        Next, we need to look at factors pertinent to the movie itself. In this model, the mean rating for the movie had a negligible effect.  One of the most important predictors was the genre of the movie. All of these coefficients were positive and very significant. Genres that received higher ratings include:  animation, drama, comedy, crime, fantasy, musicals, mysteries, westerns. Genres that tended to receive lower ratings included: documentaries, horror, and war. The probability that these coefficients were less than the absolute value of the z-statistic (the probability of significance) was 2e-16, or as significant as they can possibly to be. These are incredibly important predictors of any given rating. From this information, we know which genres are the most popular among users.  
+        However, we lastly have the interaction variables. A user's typical rating of a horror movie matters most when the movie we are trying to match them with is a horror movie. So we tested the interaction of mean genre ratings and the Boolean of whether or not it is that genre. Every single one of these predictors was also as significant as possible and had a very negative effect on movie ratings, except for single star ratings, which had a negligible effect. The single star ratings are likely negligible, probably because there were so few of them. The effects were strongest when the mean ratings were a two or three. The coefficients were noticeably closer to zero for mean ratings of four stars, but still negative. Ratings of five stars were not included in the results because these variables are factors, and one level of the factors must always be left out. We can figure out their effect though. Logically, if the mean user rating was between one and four (so none of their negative coefficients would be included) the ratings would likely be more positive. Therefore, the effect of a five star genre mean rating is positive. This makes sense. Users that give high ratings to action movies are likely to enjoy other action movies. Interestingly, giving a genre an average rating of four stars or less (even an average of 3.9 stars) means that you are unlikely to enjoy any movie of that genre. Again, these were some of the most important predictors in the GLM model.  
+        The GLM model was an imperfect predictor model. The confusion matrix shows that the model too often predicted that users would dislike the movie. There were many false negatives but very few false positives. This gave the model near perfect specificity (99% of the time that users disliked a movie, the model would say so) and positive predictive power (96% of the time that the model predicted a user would like a movie, it was accurate). However, it had a very low sensitivity (if users liked a movie, the model would say so only 4.6% of the time) and low negative predictive power (if the model predicted that a user disliked a movie, it would be accurate only 30% of the time). The model was very reluctant to ever predict that a user would like a movie.  
+
+  
+```{r, echo=TRUE, message=FALSE}
+# GLM results
+confusionMatrix(glmpred, test$Rating, positive="Like")
+summary(fit.lm)
+```
+
+Random Forest:  
+  
+        For Random Forest, the Out-Of-Bag error rate, is 31.03%, which is fairly low error rate. This means that the model is consistent over most of the trees created. When looking at variable importance, we can see that Random Forest placed a much higher importance on MeanMovieRating than the GLM did. It was by far the most important predictor in the model. After this, Occupation, Age and MeanUser Rating were important user-specific factors, along with the mean user ratings for a variety of genres, but for sci-fi and comedy movies most of all. The genre of the movie was important as well, particular whether or not it was a comedy, drama, thriller or action movie.  
+        The interaction variables did not have the powerful effects that they did in the GLM model. This is likely because the trees of the forest were able to replicate the point of an interaction variable by making two "branches out of the genre and mean genre rating variables.  
+        The sensitivity is 79.47%  and the specificity is 58.6%. The positive predictive power is 72.27% and the negative predictive power is  67.77%, so the overall accuracy is 70.62%. As a predictive model, Random Forest is objectively better than GLM at predicting results, even though it has lost some of its positive predictive power and specificity. It has made massive gains in terms of accuracy, negative predictive power and sensitivity.  
+
+```{r, echo=TRUE, message=FALSE}
+#Random Forest Results
+confusionMatrix(forestpred, test$Rating, positive="Like")
+varImpPlot(fit.forest, type=2, main=" Random Forest Variable Importance")
+```  
+
+Boosting:  
+  
+        The results were almost identical to those of random forest. The sensitivity is 82.98% and the specificity is 52.37%. The positive predictive power is 70.28% and the negative predictive power is 69.38%, for an overall accuracy of 70%. This model was also very good at predicting likes. There were very few false positives. It was much worse at figuring what movies users would dislike, so there are many false negatives.  
+        The most important predictor of the results was by far MeanMovieRating. Demographic factors did not matter at all.  The genre of the movie did not matter at all either. The users' mean average ratings for movie genres and average rating for all movies did matter, but the importance for many of these factors was small. The mean drama rating was the most important factor after MeanMovieRating, trailed by MeanUserRating. All other factors had little to no importance at all. This is likely because we limited our model to building classifiers of size 5 or less. This means that many of the more minor factors could not be included. This is a very simple model compared to the past two because it has so few predictors.  
+
+```{r, echo=TRUE, message=FALSE}
+# Boosting Results
+confusionMatrix(boostpred$class, test$Rating, positive="Like")
+fit.boost$importance
+```
+
+=================================================================
+        
+DISCUSSION
+  
+        There is a slight problem with the GLM model. It predicted that users would dislike almost all movies. This is a problem because we want to be able to distinguish between correct and incorrect matches for users and movies. There is also a chance that a user will not be given a recommendation at all because the model is so stingy about predicting that a user will like a given movie. However, when faced with a choice between being able to predict what movies people will like and being able to predict what movies people won't like, we would strongly prefer the former. After all, nobody comes to a movie recommendation service in order to figure out which movies they would hate. What they want is a system that will only recommend movies that they will like (positive predictive power) and will never recommend movies that they will dislike (specificity). If a user disliked a movie, there is almost no way that our model would recommend it to them. If our model recommended a movie, it is highly likely that the user will enjoy it. In this sense, our model is a success! Additionally, the small number of recommended movies are recommendations that we can be very sure that the users will enjoy because the model was so strict.  
+        So the model is moving in the right direction, but we do need to find a way to increase its sensitivity and negative predictive power. There are thousands of movies that a user might miss out on because our model allows too many false negatives. Only 4% of hypothetically successful recommendations will actually get made. We should also keep in mind that there are 6040 users and the model made 7109 recommendations, so each user would only get one movie recommendation on average. If the model made a random prediction about any movie and any user, there is only a 32% chance that this prediction will be accurate. We should try to correct these faults, even if there is a slightly greater chance mismatching users and movies.  
+   
+Random Forest:  
+  
+        Random Forest is a perfect technique to improve our model. Random Forest was far more likely than not to predict that a user would give a movie a positive review, the converse of GLM. After running it, we had a greatly improved sensitivity of 79.4% and negative predictive power of 67.77%. This is still not perfect, but it is vastly better than the GLM model. We do not need a perfect sensitivity, since the user does not need to see every movie that they might enjoy. They only need a handful to choose from. Users can now enjoy almost 80% the movies that would make good matches for them, which is likely more than enough. This fixes the most glaring problem with the GLM model.  
+        The accuracy for the entire model is 70.62%. In other words, if I asked this model whether or not I would like a given movie, there's a 70% chance that it would be accurate. As an outcome-prediction system, that is not bad and definitely represents an improvement over GLM. As a movie recommendation system, it is effective but not as immaculate as GLM. The positive predictive power is 72.27%, so if the model predicted that I would like a movie, it would be correct roughly three-quarters of the time. This is a decrease from GLM, but still within acceptable bounds. The specificity is only 58.59%, so if a user would dislike a movie, there is still a 41.4% chance that our model would recommend it anyway. Our system has gotten much better at identifying "good" matches, but slightly worse at identifying "bad" matches.  
+        The outcome is that users will have a far greater number of movies to choose from. However, they will still have to exercise some human intelligence when they choose, as about a quarter of the movies that our system recommends are false positives. This is not a bad thing. It will give users some agency over their own results. After all, this is how real movie recommendation systems work today. There is a tradeoff between the quantity of movies recommended and the quality of these recommendations. This model provides a reasonable balance between the two, since users can enjoy 79.4% of the movies that they should match with and recommendations will be accurate nearly 72.27% of the time.  
+        One major downside of Random Forest is that it is a black box technique. There is no way to know where the variables went within the tree and what impact they made without decomposing the random forest into its individual trees and examining all of them. We can see which variables mattered the mattered, but not how they mattered.  
+        One way to improve this model would be to use more trees. We used only 10 trees because we have so many variables. It would be difficult to run the program with a large number of trees, but this would be possible with more advanced hardware. Perhaps with more trees the model would become better at identifying dislikes and would obtain a higher specificity.  
+   
+Boosting:  
+  
+        Like Random Forest, Boosting is a powerful black box technique. It could also improve on GLM's flaws. With boosting, there is no need to include interaction variables because the boosting function can create interactions internally. As with Random Forest, we faced hardware limitations. With so many variables, the boosting function could have benefitted from having very "deep" classifiers. Due to hardware considerations, we had to limit our strong classifiers to a maximum depth of 5. This makes the model a very simple one and the result is that most of the predictors did not make it into the model.  
+        This model's similarity to the Random Forest model should inspire some confidence, especially since it is so simple. It is reassuring to see that the Boosting function also selected MeanMovieRatings, MeanUserRating and the mean genre ratings as the most important variables, even though these are the obvious candidates for predicting whether or not a user will like a movie. It is somewhat troubling that it was never able to include any of the other variables. Perhaps the model was too simple.  
+        Like Random Forest, this model is a fairly accurate predictor, but an imperfect recommender. The two functions share almost identical outcomes. The accuracy, both predictive powers and specificity have decreased slightly but the sensitivity has risen. This means that our model is slightly better at identifying good matches. It is worse at identifying worse matches. With a specificity of 52.36%, it is barely better than a guess. This is a tradeoff that, in our opinion, does not pay off. The random forest results delivered an adequate number of true positives. Its main fault was its poor specificity, and on this front Boosting has unfortunately failed to improve the results. This is ironic since the boosting technique is built for classification.
+        This does shed some additional light on how to improve the Random Forest model. The Random Forest model was better because it was able to take advantage of demographic and movie specific factors. This is what helped it improve its specificity, which was the major problem that it faced and that boosting only made worse. One of the best ways to improve the Random Forest technique might be to include more demographic and movie specific factors. If there is a way to describe movies beyond their genre, perhaps by release year or by their descriptions, this could be very effective. There are always more demographic factors that we could obtain about users, including their location, race, religious views, and more.
+  
+=================================================================
+CONCLUSION
+  
+        Ultimately, it seems that random forest provided the best model in terms of both predictive power and as a recommendation system. The best way to continue improving the model is likely to include more trees in the model and to obtain more information about our movies and users. The best version of the model gives predictions that are accurate about 72% of the time and is able to recommend 80% of the movies that a user would hypothetically enjoy. Ultimately, there may be a tradeoff between the two numbers, and the right outcome is subjective. We believe that this is an optimal tradeoff and a good recommendation model.  
+  
+=================================================================
+REFERENCES:  
+
+    F. Maxwell Harper and Joseph A. Konstan. 2015. The MovieLens Datasets: History
+    and Context. ACM Transactions on Interactive Intelligent Systems (TiiS) 5, 4,
+    Article 19 (December 2015), 19 pages. DOI=http://dx.doi.org/10.1145/2827872
